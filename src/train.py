@@ -153,6 +153,8 @@ def main():
     parser.add_argument('--device', type=str, default='auto', 
                         choices=['auto', 'cuda', 'mps', 'cpu'])
     
+
+    # to improve: use data directoryt in parser and subsequently validate train and test directories 
     # Make train-dir and test-dir required arguments
     parser.add_argument('--train-dir', type=str, required=True,
                         help='Path to training directory')
