@@ -234,3 +234,176 @@ class XceptionCustomBLITZ(nn.Module):
 
 
 '''
+
+
+##########################################################################################
+#####                                                                                #####
+#####                             FREQUENTIST MODEL MODIFIED                         #####
+#####                                                                                #####
+##########################################################################################
+
+
+
+# --- Separable Convolution Module (unchanged) ---
+
+'''
+class SeparableConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False):
+        super(SeparableConv2d, self).__init__()
+        # Depthwise: one filter per input channel
+        self.depthwise = nn.Conv2d(
+            in_channels, in_channels, kernel_size=kernel_size,
+            stride=stride, padding=padding, groups=in_channels, bias=bias
+        )
+        # Pointwise: 1x1 conv to mix channels
+        self.pointwise = nn.Conv2d(
+            in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=bias
+        )
+    
+    def forward(self, x):
+        out = self.depthwise(x)
+        out = self.pointwise(out)
+        return out
+
+'''
+
+# --- Modified Residual Block to Match TensorFlow ---
+class XceptionResBlockModified(nn.Module):
+    def __init__(self, input_channels: int, output_channels: int):
+        super().__init__()
+        # Main path: SepConv → BN → ReLU → SepConv → BN → ReLU → MaxPool
+        self.sepconv1 = SeparableConv2d(input_channels, output_channels, bias=False)
+        self.bn1 = nn.BatchNorm2d(output_channels)
+        self.relu1 = nn.ReLU()
+        
+        self.sepconv2 = SeparableConv2d(output_channels, output_channels, bias=False)
+        self.bn2 = nn.BatchNorm2d(output_channels)
+        self.relu2 = nn.ReLU()
+        
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        
+        # Shortcut projection for residual connection
+        self.shortcut = nn.Conv2d(
+            in_channels=input_channels,
+            out_channels=output_channels,
+            kernel_size=1,
+            stride=2,
+            padding=0,
+            bias=False
+        )
+    
+    def forward(self, x):
+        # Main path
+        out = self.sepconv1(x)
+        out = self.bn1(out)
+        out = self.relu1(out)
+        
+        out = self.sepconv2(out)
+        out = self.bn2(out)
+        out = self.relu2(out)
+        
+        out = self.maxpool(out)
+        
+        # Shortcut path
+        shortcut = self.shortcut(x)
+        
+        # Add residual connection
+        out = out + shortcut
+        
+        return out
+    
+
+# Alternative cleaner implementation that exactly matches TensorFlow's pattern
+class XceptionTensorFlowEquivalent(nn.Module):
+    def __init__(self, input_channels=3, num_classes=2):
+        super().__init__()
+        
+        # Entry block
+        self.entry_conv = nn.Conv2d(input_channels, 8, 3, stride=2, padding=1, bias=False)
+        self.entry_bn = nn.BatchNorm2d(8)
+        self.entry_relu = nn.ReLU()
+        
+        # Define all layers explicitly to match TensorFlow exactly
+        filter_sizes = [8, 16, 32, 64, 128, 256, 512]
+        
+        self.sepconv_layers = nn.ModuleList()
+        self.bn_layers = nn.ModuleList()
+        self.relu_layers = nn.ModuleList()
+        self.maxpool_layers = nn.ModuleList()
+        self.residual_convs = nn.ModuleList()
+        
+        # Build layers for each filter size
+        prev_channels = 8
+        for size in filter_sizes:
+            # First separable conv
+            self.sepconv_layers.append(SeparableConv2d(prev_channels, size, bias=False))
+            self.bn_layers.append(nn.BatchNorm2d(size))
+            self.relu_layers.append(nn.ReLU())
+            
+            # Second separable conv  
+            self.sepconv_layers.append(SeparableConv2d(size, size, bias=False))
+            self.bn_layers.append(nn.BatchNorm2d(size))
+            self.relu_layers.append(nn.ReLU())
+            
+            # MaxPool
+            self.maxpool_layers.append(nn.MaxPool2d(3, stride=2, padding=1))
+            
+            # Residual projection
+            self.residual_convs.append(nn.Conv2d(prev_channels, size, 1, stride=2, bias=False))
+            
+            prev_channels = size
+        
+        # Final layers
+        self.final_sepconv = SeparableConv2d(512, 1024, bias=False)
+        self.final_bn = nn.BatchNorm2d(1024)
+        self.final_relu = nn.ReLU()
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(0.5)
+        self.classifier = nn.Linear(1024, num_classes, bias=True)
+        self.softmax = nn.Softmax(dim=1)
+    
+    def forward(self, x):
+        # Entry block
+        x = self.entry_conv(x)
+        x = self.entry_bn(x)
+        x = self.entry_relu(x)
+        
+        previous_block_activation = x
+        
+        # Process each block exactly like TensorFlow
+        layer_idx = 0
+        for block_idx in range(7):  # 7 blocks for filter_sizes
+            # First sepconv + bn + relu
+            x = self.sepconv_layers[layer_idx](x)
+            x = self.bn_layers[layer_idx](x)
+            x = self.relu_layers[layer_idx](x)
+            layer_idx += 1
+            
+            # Second sepconv + bn + relu
+            x = self.sepconv_layers[layer_idx](x)
+            x = self.bn_layers[layer_idx](x)
+            x = self.relu_layers[layer_idx](x)
+            layer_idx += 1
+            
+            # MaxPool
+            x = self.maxpool_layers[block_idx](x)
+            
+            # Residual connection from previous block activation
+            residual = self.residual_convs[block_idx](previous_block_activation)
+            x = x + residual
+            
+            # Update for next iteration
+            previous_block_activation = x
+        
+        # Final layers
+        x = self.final_sepconv(x)
+        x = self.final_bn(x)
+        x = self.final_relu(x)
+        x = self.gap(x)
+        x = torch.flatten(x, 1)
+        x = self.dropout(x)
+        x = self.classifier(x)
+        x = self.softmax(x)
+        
+        return x
+
