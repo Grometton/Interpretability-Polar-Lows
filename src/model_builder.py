@@ -6,8 +6,8 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
-#from blitz.modules import BayesianConv2d, BayesianLinear
-#from blitz.utils import variational_estimator
+from blitz.modules import BayesianLinear, BayesianConv2d
+from blitz.utils import variational_estimator
 
 
 ##########################################################################################
@@ -116,24 +116,134 @@ class XceptionCustom(nn.Module):
 
 
 
-'''
 ##########################################################################################
 #####                                                                                #####
-#####                               BAYESIAN MODEL                                   #####
+#####                        BAYESIAN CLASSIFIER HEAD MODEL                         #####
+#####                                                                                #####
+##########################################################################################
+
+
+
+# --- Customized Xception Model with Bayesian Classifier Head Only ---
+@variational_estimator  # adds sample_elbo for training 
+class XceptionBayesianHead(nn.Module): 
+    def __init__(self, input_channels=3, filter_num=[8, 16, 32, 64, 128, 256, 512], num_classes=2, prior=None):
+        super().__init__()
+        self.filter_num = filter_num 
+        self.num_classes = num_classes
+
+        # Entry block (deterministic)
+        self.entry = nn.Sequential(
+            nn.Conv2d(in_channels=input_channels, 
+                     out_channels=8, 
+                     kernel_size=(3,3), 
+                     stride=2, 
+                     padding=1, 
+                     bias=False),
+            nn.BatchNorm2d(8, affine=True),
+            nn.ReLU()
+        )
+        
+        # Residual block sequence (all deterministic)
+        blocks = []
+        input_channels = 8
+        for out_filters in self.filter_num:
+            blocks.append(XceptionResBlock(input_channels, out_filters))
+            input_channels = out_filters
+        self.blocks = nn.ModuleList(blocks)
+
+        # Final separable conv, bn, relu (deterministic)
+        self.final_sepconv = nn.Sequential(
+            SeparableConv2d(self.filter_num[-1], self.filter_num[-1]*2),
+            nn.BatchNorm2d(self.filter_num[-1]*2, affine=True),
+            nn.ReLU()
+        )
+
+        # Global average pooling
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))
+
+        # Bayesian classifier head
+        if prior is None:
+            # Use default BLiTZ priors
+            self.classifier = nn.Sequential(
+                nn.Dropout(p=0.5),
+                BayesianLinear(self.filter_num[-1]*2, self.num_classes, bias=False)
+            )
+        else:
+            # Use custom prior
+            self.classifier = nn.Sequential(
+                nn.Dropout(p=0.5),
+                BayesianLinear(self.filter_num[-1]*2, self.num_classes, bias=False, prior_dist=prior)
+            )
+
+    def forward(self, x: torch.Tensor):
+        # Deterministic feature extraction
+        x = self.entry(x)
+        for block in self.blocks:
+            x = block(x)
+        x = self.final_sepconv(x)
+        x = self.gap(x)
+        x = torch.flatten(x, 1)
+        
+        # Bayesian classification
+        x = self.classifier(x)
+        return x
+
+    def predict_with_uncertainty(self, x: torch.Tensor, num_samples: int = 100):
+        """
+        Make predictions with uncertainty estimation by sampling from the Bayesian classifier.
+        
+        Args:
+            x: Input tensor
+            num_samples: Number of forward passes to perform for uncertainty estimation
+            
+        Returns:
+            predictions: Mean predictions across samples
+            uncertainty: Standard deviation of predictions (epistemic uncertainty)
+        """
+        self.train()  # Enable dropout and Bayesian sampling
+        
+        predictions = []
+        with torch.no_grad():
+            for _ in range(num_samples):
+                pred = self(x)
+                predictions.append(torch.softmax(pred, dim=1))
+        
+        predictions = torch.stack(predictions)  # Shape: (num_samples, batch_size, num_classes)
+        
+        mean_pred = predictions.mean(dim=0)
+        uncertainty = predictions.std(dim=0)
+        
+        return mean_pred, uncertainty
+
+
+
+
+##########################################################################################
+#####                                                                                #####
+#####                              BASE BAYESIAN MODEL                               #####
 #####                                                                                #####
 ##########################################################################################
 
         
 # --- Separable Convolution Module (BLiTZ: pointwise Bayesian - decide whether to make fully Bayesian later - for now, only pointwise component is Bayesian) ---
 class SeparableConv2d_BLITZ(nn.Module):
+    #prior=None is deafault for standard Gaussian
     def __init__(self, in_channels:int, out_channels:int, kernel_size=(3,3), stride=1, padding=1, bias=False, prior=None):
         super().__init__()
 
         # kept depthwise deterministic for now (groups=in_channels - amend later)
-        self.depthwise = nn.Conv2d(in_channels, in_channels,
-                                   kernel_size=kernel_size, stride=stride, padding=padding,
-                                   groups=in_channels, bias=bias)
-        
+        self.depthwise = BayesianConv2d(in_channels, 
+                                        in_channels,
+                                        kernel_size=kernel_size, 
+                                        stride=stride, 
+                                        padding=padding,
+                                        groups=in_channels, bias=bias, 
+                                        prior_sigma_1=0.1,
+                                        prior_sigma_2=0.3, 
+                                        prior_pi=1, 
+                                        posterior_rho_init=0.2)
+
         # pointwise: 1x1: make Bayesian with BLiTZ package
         # pass prior dict for customization (to be updated later)
         if prior is None:
@@ -217,6 +327,24 @@ class XceptionCustomBLITZ(nn.Module):
                 BayesianLinear(self.filter_num[-1]*2, 2, bias=False)
             )
         else:
+
+            """
+            Bayesian Linear layer, implements the linear layer proposed on Weight Uncertainity on Neural Networks
+            (Bayes by Backprop paper).
+
+            Its objective is be interactable with torch nn.Module API, being able even to be chained in nn.Sequential models with other non-this-lib layers
+            
+            parameters:
+                in_fetaures: int -> incoming features for the layer
+                out_features: int -> output features for the layer
+                bias: bool -> whether the bias will exist (True) or set to zero (False)
+                prior_sigma_1: float -> prior sigma on the mixture prior distribution 1
+                prior_sigma_2: float -> prior sigma on the mixture prior distribution 2
+                prior_pi: float -> pi on the scaled mixture prior
+                posterior_mu_init float -> posterior mean for the weight mu init
+                posterior_rho_init float -> posterior mean for the weight rho init
+                freeze: bool -> wheter the model will start with frozen(deterministic) weights, or not
+            """
             self.classifier = nn.Sequential(
                 nn.Dropout(p=0.5),
                 BayesianLinear(self.filter_num[-1]*2, 2, bias=False, prior_dist=prior)
@@ -233,8 +361,10 @@ class XceptionCustomBLITZ(nn.Module):
         return x
 
 
-'''
 
+
+
+### IGNORE BELOW
 
 ##########################################################################################
 #####                                                                                #####
