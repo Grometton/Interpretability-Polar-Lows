@@ -443,7 +443,6 @@ class XceptionResBlockModified(nn.Module):
         return out
     
 
-# Alternative cleaner implementation that exactly matches TensorFlow's pattern
 class XceptionTensorFlowEquivalent(nn.Module):
     def __init__(self, input_channels=3, num_classes=2):
         super().__init__()
