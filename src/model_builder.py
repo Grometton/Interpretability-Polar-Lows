@@ -6,8 +6,8 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
-from blitz.modules import BayesianLinear, BayesianConv2d
-from blitz.utils import variational_estimator
+#from blitz.modules import BayesianLinear, BayesianConv2d
+#from blitz.utils import variational_estimator
 
 
 ##########################################################################################
@@ -123,7 +123,7 @@ class XceptionCustom(nn.Module):
 ##########################################################################################
 
 
-
+'''
 # --- Customized Xception Model with Bayesian Classifier Head Only ---
 @variational_estimator  # adds sample_elbo for training 
 class XceptionBayesianHead(nn.Module): 
@@ -362,7 +362,7 @@ class XceptionCustomBLITZ(nn.Module):
 
 
 
-
+'''
 
 ### IGNORE BELOW
 
