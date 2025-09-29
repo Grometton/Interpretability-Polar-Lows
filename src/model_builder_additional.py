@@ -460,20 +460,3 @@ class BayesianTrainer:
         return likelihood_loss + kl_weight * kl_loss, likelihood_loss, kl_loss
 
 
-# --- Example Usage ---
-if __name__ == "__main__":
-    # Create models
-    frequentist_model = XceptionCustom()
-    
-    # Start with hybrid model (recommended)
-    prior_config = create_prior_dict(prior_sigma=0.1, prior_pi=1.0, posterior_rho_init=-3.0)
-    hybrid_model = XceptionHybrid(prior_config=prior_config)
-    
-    # MC Dropout baseline
-    mc_dropout_model = XceptionMCDropout(dropout_p=0.1)
-    
-    # Full Bayesian (use after hybrid works)
-    # full_bayesian_model = XceptionFullBayesian(fully_bayesian=True, prior_config=prior_config)
-    
-    print("Models created successfully!")
-    print(f"Hybrid model parameters: {sum(p.numel() for p in hybrid_model.parameters())}")

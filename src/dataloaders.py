@@ -21,20 +21,20 @@ def get_transforms(CROP_HEIGHT = 512,
                             transforms.Resize(IMAGE_SIZE),
                             transforms.RandomAffine( # RandomTranslation and RandomRotation
                                         degrees=22.9, # 0.4 radians * (180/pi)
-                                        translate=(0.1, 0.1), # Max absolute fraction of translation
-                                        scale=(0.85, 1.15), # Equivalent to zoom (-0.15, 0.15)
-                                        fill=0), # Fill value with 0 for areas outside the image after transform
+                                        translate=(0.1, 0.1), # max absolute fraction of translation
+                                        scale=(0.85, 1.15), # equivalent to zoom (-0.15, 0.15)
+                                        fill=0), # fill value with 0 for areas outside the image after transform
                             transforms.RandomHorizontalFlip(p=0.5),
                             transforms.RandomVerticalFlip(p=0.5),
-                            transforms.CenterCrop((CROP_HEIGHT, CROP_WIDTH)), # CenterCrop to 512x512
-                            transforms.ToTensor(), # Converts PIL Image to Tensor and scales pixels to [0, 1]
+                            transforms.CenterCrop((CROP_HEIGHT, CROP_WIDTH)), # centerCrop to 512x512
+                            transforms.ToTensor(), # converts PIL Image to Tensor and scales pixels to [0, 1]
                                         ])
 
 
     test_transform = transforms.Compose([
-                                        transforms.Resize(IMAGE_SIZE), # First resize to the expected input size
+                                        transforms.Resize(IMAGE_SIZE), 
                                         transforms.CenterCrop((CROP_HEIGHT, CROP_WIDTH)), # CenterCrop
-                                        transforms.ToTensor(), # Converts PIL Image to Tensor and scales pixels to [0, 1]
+                                        transforms.ToTensor(), # converts PIL Image to Tensor and scales pixels to [0, 1]
                                         ])
 
 
@@ -87,12 +87,12 @@ def create_dataloaders(train_dir: str,
     print(f"Positive training samples: {n_pos_train} ({int(n_pos_train/total*100)}%), Negative training samples: {n_neg_train} ({int(n_neg_train/total*100)}%)")
     
 
-    # Create a balanced sampler for oversampling
+    #create a balanced sampler for oversampling
     class_weights = []
     for _, label in train_data:
         class_weights.append(1.0 / class_counts[label])
     
-    # Convert tensor to a list of floats for WeightedRandomSampler
+    # convert tensor to a list of floats for WeightedRandomSampler
     sampler = WeightedRandomSampler(class_weights, num_samples=len(train_data) * 2, replacement=True)
         
     # define dataloaders

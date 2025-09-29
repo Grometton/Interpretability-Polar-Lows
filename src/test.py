@@ -38,27 +38,22 @@ def evaluate_model(model: torch.nn.Module,
     for X, y in tqdm(test_loader, desc="Evaluating", unit="batch"):
         X, y = X.to(device, non_blocking=True), y.to(device, non_blocking=True)
         
-        # Forward pass
         logits = model(X)
         
-        # Get predictions and probabilities in one go
         probs = F.softmax(logits, dim=1)
         pred_labels = torch.argmax(logits, dim=1)
         
-        # Move to CPU and store
         y_true_list.append(y.cpu())
         y_pred_labels_list.append(pred_labels.cpu())
-        y_pred_probs_list.append(probs[:, 1].cpu())  # Probability of positive class
+        y_pred_probs_list.append(probs[:, 1].cpu())  
     
-    # Concatenate all results 
     y_true = torch.cat(y_true_list).numpy()
     y_pred_labels = torch.cat(y_pred_labels_list).numpy()
     y_pred_probs = torch.cat(y_pred_probs_list).numpy()
     
     evaluation_time = time.time() - start_time
-    total_samples = len(y_true)  # Fixed: get actual sample count
+    total_samples = len(y_true)  
     
-    # Calculate metrics with error handling
     classification_rep = classification_report(y_true, y_pred_labels, output_dict=True)
     
     try:
@@ -101,7 +96,6 @@ def print_results(results: Dict[str, Any]):
             print(f"{class_name:>12}: P={metrics['precision']:.3f} R={metrics['recall']:.3f} "
                   f"F1={metrics['f1-score']:.3f} Support={metrics['support']}")
     
-    # Print AUC metrics if available
     if results['roc_auc'] is not None:
         print(f"\nAUC Metrics:")
         print(f"ROC-AUC: {results['roc_auc']:.4f}")
@@ -113,7 +107,6 @@ def generate_results_path(model_path: str, output_dir: str = "results") -> str:
     model_name = Path(model_path).stem  # Gets filename without extension
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     
-    # Create output directory if it doesn't exist
     Path(output_dir).mkdir(exist_ok=True)
     
     return f"{output_dir}/{model_name}_evaluation_{timestamp}.json"
@@ -133,7 +126,6 @@ def save_results(results: Dict[str, Any], output_path: str):
         'y_pred_probs': results['y_pred_probs'].tolist()
     }
     
-    # Ensure parent directory exists
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     
     with open(output_path, 'w') as f:
@@ -149,7 +141,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Expand user path if needed
     model_path = Path(args.model_path).expanduser()
     data_path = Path(args.data_path).expanduser()
     
@@ -185,7 +176,6 @@ def main():
         print(f"Error creating data loaders: {e}")
         sys.exit(1)
 
-    # Load model
     try:
         model = model_builder.XceptionCustom(input_channels=3)
         state_dict = torch.load(model_path, map_location=device)

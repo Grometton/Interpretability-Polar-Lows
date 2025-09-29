@@ -41,22 +41,20 @@ def train_step(model: torch.nn.Module,
     all_labels = []
     total_loss, total_correct, total_samples = 0.0, 0.0, 0.0
     
-    # Manually limit batches per epoch to match TF's steps_per_epoch
     for batch_num, (X, y) in enumerate(dataloader):
         if batch_num >= steps_per_epoch:
             break
 
         X, y = X.to(device), y.to(device)
         y_logits = model(X)
-        y_preds = torch.argmax(y_logits, dim=1) # Predicted classes (0 or 1)
+        y_preds = torch.argmax(y_logits, dim=1) 
 
         loss_batch = loss_fn(y_logits, y)
-        batch_size_actual = y.shape[0] # Actual batch size, might be smaller at the end
-        total_loss += loss_batch.item() * batch_size_actual # .item() to get scalar
+        batch_size_actual = y.shape[0] 
+        total_loss += loss_batch.item() * batch_size_actual 
         total_samples += batch_size_actual
         total_correct += (y_preds == y).sum().item()
 
-        # Detach tensors before moving to CPU and appending to lists
         all_preds.append(y_preds.detach().cpu())
         all_labels.append(y.detach().cpu())
 
@@ -103,13 +101,11 @@ def train_model(model: torch.nn.Module,
         'f1': [],
     }
 
-    # Create model directory if it doesn't exist
     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
 
     for epoch in tqdm(range(num_epochs)):
         model.train()
     
-        # Pass steps_per_epoch_tf to train_step_fn
         train_loss, train_acc, _, _, _, f1 = train_step(model, 
                                                         train_loader, 
                                                         loss_fn, 
@@ -124,10 +120,8 @@ def train_model(model: torch.nn.Module,
 
         print(f"Epoch {epoch+1}/{num_epochs} - Loss: {train_loss:.4f} - Acc: {train_acc:.4f} - F1: {f1:.4f}")
 
-        # Learning rate scheduler step
         lr_scheduler.step(train_loss)
 
-        # Save best model
         if (train_loss < best_metric):
             best_metric = train_loss
             best_model_weights = copy.deepcopy(model.state_dict())
@@ -155,19 +149,16 @@ def main():
     
 
     # to improve: use data directoryt in parser and subsequently validate train and test directories 
-    # Make train-dir and test-dir required arguments
     parser.add_argument('--train-dir', type=str, required=True,
                         help='Path to training directory')
     parser.add_argument('--test-dir', type=str, required=True,
                         help='Path to test directory')
     
-    # Fix the type specification
     parser.add_argument('--checkpoint-path', type=str, default='outputs/new_model.pth', 
                         help='Path for newly trained model - use format: outputs/DD.MM.YY_polar_lows_customex.pth (Default is new_model.pth)')
 
     args = parser.parse_args()
 
-    # Validate that directories exist
     if not os.path.exists(args.train_dir):
         print(f"Error: Training directory '{args.train_dir}' does not exist.")
         sys.exit(1)
@@ -185,7 +176,6 @@ def main():
     print(f'Test directory: {test_dir}')
     print(f'Checkpoint path: {args.checkpoint_path}')
 
-    print('Creating dataloaders...')
     train_transform, test_transform = get_transforms()
     train_loader, test_loader, n_pos_train, n_neg_train, class_to_idx_dict = create_dataloaders(
         train_dir,
@@ -197,20 +187,17 @@ def main():
     print(f"Training samples: {n_pos_train + n_neg_train} (pos: {n_pos_train}, neg: {n_neg_train})")
     print(f"Class mapping: {class_to_idx_dict}")
     
-    print('Creating model...')
     model = XceptionCustom().to(device)
     
     print('Starting training...')
-    # FIXED: Added missing comma and proper argument passing
     trained_model, history = train_model(
         model,
         train_loader,
         device,
         checkpoint_path=args.checkpoint_path,
-        n_neg_train=n_neg_train  # Fixed: added comma and proper assignment
+        n_neg_train=n_neg_train  
     )
 
-    print("Training completed!")
     print(f"Final training loss: {history['train_loss'][-1]:.4f}")
     print(f"Final training accuracy: {history['train_acc'][-1]:.4f}")
     print(f"Final F1 score: {history['f1'][-1]:.4f}")

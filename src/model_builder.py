@@ -397,7 +397,7 @@ class SeparableConv2d(nn.Module):
 
 '''
 
-# --- Modified Residual Block to Match TensorFlow ---
+# --- modified residual block to match TensorFlow ---
 class XceptionResBlockModified(nn.Module):
     def __init__(self, input_channels: int, output_channels: int):
         super().__init__()
@@ -447,12 +447,10 @@ class XceptionTensorFlowEquivalent(nn.Module):
     def __init__(self, input_channels=3, num_classes=2):
         super().__init__()
         
-        # Entry block
         self.entry_conv = nn.Conv2d(input_channels, 8, 3, stride=2, padding=1, bias=False)
         self.entry_bn = nn.BatchNorm2d(8)
         self.entry_relu = nn.ReLU()
         
-        # Define all layers explicitly to match TensorFlow exactly
         filter_sizes = [8, 16, 32, 64, 128, 256, 512]
         
         self.sepconv_layers = nn.ModuleList()
@@ -461,7 +459,6 @@ class XceptionTensorFlowEquivalent(nn.Module):
         self.maxpool_layers = nn.ModuleList()
         self.residual_convs = nn.ModuleList()
         
-        # Build layers for each filter size
         prev_channels = 8
         for size in filter_sizes:
             # First separable conv
@@ -482,7 +479,6 @@ class XceptionTensorFlowEquivalent(nn.Module):
             
             prev_channels = size
         
-        # Final layers
         self.final_sepconv = SeparableConv2d(512, 1024, bias=False)
         self.final_bn = nn.BatchNorm2d(1024)
         self.final_relu = nn.ReLU()
@@ -492,14 +488,12 @@ class XceptionTensorFlowEquivalent(nn.Module):
         self.softmax = nn.Softmax(dim=1)
     
     def forward(self, x):
-        # Entry block
         x = self.entry_conv(x)
         x = self.entry_bn(x)
         x = self.entry_relu(x)
         
         previous_block_activation = x
         
-        # Process each block exactly like TensorFlow
         layer_idx = 0
         for block_idx in range(7):  # 7 blocks for filter_sizes
             # First sepconv + bn + relu
